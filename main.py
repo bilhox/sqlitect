@@ -81,7 +81,7 @@ class DatabaseCommunicator:
         res = self.cursor.execute(sqlQuery)
         return res.fetchall()
     
-db = DatabaseCommunicator("database.db" , overwrite=True)
+db = DatabaseCommunicator("./db/database.db" , overwrite=True)
 db.createTable("users"  , {"user_id":"INT UNSIGNED" , "username":"CHAR(40)" , "password":"CHAR(40)"} , typeInterpreted=False)
 db.fetch("users" , ["user_id" , "username"])
 db.insert("users" , {"user_id":1 , "username":"lody" , "password":"admin"})
