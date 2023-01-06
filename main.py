@@ -1,6 +1,6 @@
 import sqlite3
 import os
-
+import random
 
 class DatabaseCommunicator:
 
@@ -9,38 +9,55 @@ class DatabaseCommunicator:
         if(overwrite and os.path.exists(database_path)):
             os.remove(database_path)
 
-        self.connector = sqlite3.connect(database_path)
-        self.cursor = self.connector.cursor()
+        self._connector = sqlite3.connect(database_path)
+        self._cursor = self._connector.cursor()
     
-    def createTable(self , table : str , attributes : dict , typeInterpreted=True):
+    def createTable(self , table : str , attributes : dict , primary_keys=[]):
 
         sqlQuery = "CREATE TABLE "+table+" ( "
         n = 1
         for key , valueType in attributes.items():
             sqlQuery += key + " "
-            if(typeInterpreted):
-                if(valueType is int):
-                    sqlQuery += "BIGINT"
-                elif(valueType is str):
-                    sqlQuery += "LONGTEXT"
-                else:
-                    raise TypeError("Value type not supported by SQL \n\tSuggestions:\n\t\tSet typeInterpreted parameter to false and use specific types !")
-            else:
-                sqlQuery += key + " "
-                sqlQuery += valueType
+            sqlQuery += valueType
             
-            sqlQuery += " , " if(n != len(attributes)) else " )"
+            sqlQuery += " , " if(n != len(attributes)) else ""
 
             n+=1
+        
+        if(primary_keys):
+            n = 1
+            sqlQuery += " , PRIMARY KEY ( "
+            for key in primary_keys:
+                sqlQuery += key+" "
+                if(n != len(primary_keys)):
+                    ", "
+                n+=1
+            sqlQuery += ") "
+        sqlQuery += " )"
 
-        self.cursor.execute(sqlQuery)
+        self._cursor.execute(sqlQuery)
     
-    def fetchAll(self , table : str):
-        res = self.cursor.execute("SELECT * FROM "+table)
-        return res.fetchall()
+    def loadTable(self , csv_path : str , table_name : str):
+        
+        # Hidden import , hehe
+        from csv import DictReader
+
+        entries = []
+
+        with open(file=csv_path , newline='' , encoding='utf8') as reader:
+            spam_reader = DictReader(reader , delimiter=';')
+            for entry in spam_reader:
+                entries.append(entry)
+        
+        attributes = {att:"TEXT" for att in entries[0].keys()}
+        self.createTable(table_name , attributes)
+
+        datas = [list((entry.values())) for entry in entries]
+        self._cursor.executemany("INSERT INTO "+table_name+" VALUES ( ? "+", ?"*(len(attributes)-1)+" )" , datas)
+        self._connector.commit()
     
     def getTableAttributes(self , table : str):
-        res = self.cursor.execute("SELECT * FROM "+table)
+        res = self._cursor.execute("SELECT * FROM "+table)
         return [att[0] for att in res.description]
     
     def insert(self , table : str , entry : dict):
@@ -61,27 +78,106 @@ class DatabaseCommunicator:
 
         i = 1
         for value in values:
+            if(isinstance(value , str)):
+                sqlQuery += "'"
             sqlQuery += str(value)
+            if(isinstance(value , str)):
+                sqlQuery += "'"
             if(len(keys)==i):
                 sqlQuery += " ) "
             else:
                 sqlQuery += " , "
             i+=1
         
-        print(sqlQuery)
-        self.cursor.execute(sqlQuery)
-        self.connector.commit()
-
+        self._cursor.execute(sqlQuery)
+        self._connector.commit()
     
-    def fetch(self , table ,  attributes=[]):
+    def fetch(self , table ,  attributes=[] , distinct=False , condition=None):
         sqlQuery = "SELECT "
-        for attribute in attributes:
-            sqlQuery += attribute + " "
+        if(distinct):
+            sqlQuery += "DISTINCT "
+        
+        if(attributes):
+            i = 1
+            for attribute in attributes:
+                sqlQuery += attribute + " "
+                if(i != len(attributes)):
+                    sqlQuery += ", "
+                i+=1
+        else:
+            sqlQuery += " *"
+
         sqlQuery += "FROM "+table
-        res = self.cursor.execute(sqlQuery)
+
+        if(condition):
+            sqlQuery += " WHERE "+condition
+
+        res = self._cursor.execute(sqlQuery)
         return res.fetchall()
     
+    def deleteTable(self , table : str):
+        self._cursor.execute("DROP TABLE "+table)
+    
+    def deleteFromTable(self , table : str , condition=None):
+        sqlQuery = "DELETE FROM "+table
+        if(condition):
+            sqlQuery += " WHERE "+condition
+        self._cursor.execute(sqlQuery)
+    
+    def updateFromTable(self , table : str , modifications : list[str], condition=None):
+        sqlQuery = "UPDATE "+table+" SET "+modifications[0]
+
+        for i in range(1,len(modifications)):
+            sqlQuery += " , "+modifications[i]
+
+        if(condition):
+            sqlQuery += " WHERE "+condition
+        self._cursor.execute(sqlQuery)
+        self._connector.commit()
+    
+    def addAttribute(self , table : str , attribute_name : str , attribute_type : str):
+        sqlQuery = "ALTER TABLE "+table+" ADD "+attribute_name+" "+attribute_type
+        self._cursor.execute(sqlQuery)
+    
+    def deleteAttribute(self , table : str , attribute_name : str):
+        self._cursor.execute(f"ALTER TABLE {table} DROP {attribute_name}")
+    
+    def executeSQLFile(self , path : str):
+        codeLines = []
+
+        with open(path , mode="r" , encoding="utf8" , newline="") as reader:
+            codeLines = reader.readlines()
+        
+        code = "".join(codeLines)
+        queries = code.split(";")
+        for query in queries:
+            self._cursor.execute(query)
+            if("INSERT INTO" in query):
+                self._connector.commit()
+
+    
 db = DatabaseCommunicator("./db/database.db" , overwrite=True)
-db.createTable("users"  , {"user_id":"INT UNSIGNED" , "username":"CHAR(40)" , "password":"CHAR(40)"} , typeInterpreted=False)
-db.fetch("users" , ["user_id" , "username"])
-db.insert("users" , {"user_id":1 , "username":"lody" , "password":"admin"})
+db.createTable("users"  , {"user_id":"INT UNSIGNED" , "username":"CHAR(40)" , "password":"CHAR(40)"}, primary_keys=["user_id"])
+for i in range(1 , 11):
+    db.insert("users" , {"user_id":i , "username":f"lody{i}" , "password":f"admin{i}"})
+
+db.addAttribute("users" , "email" , "VARCHAR(255)")
+db.insert("users" , {"user_id":11 , "username":"sussy" , "password":"impostor" , "email":"hecker@heck.exe"})
+
+db.deleteFromTable("users" , "user_id=9")
+db.updateFromTable("users" , ["username='SFML dude'"] , "user_id=8")
+
+db.executeSQLFile("test.sql")
+db.loadTable("test.csv" , "pays")
+
+for entry in db.fetch(
+    "users",
+    ["username" , "user_password" , "user_id"]
+):
+    print(entry)
+
+for entry in db.fetch(
+    "pays",
+    []
+):
+    print(entry)
