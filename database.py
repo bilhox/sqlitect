@@ -5,13 +5,19 @@ class Database:
 
     def __init__(self , database_path : str , overwrite=False):
 
+        """
+        Creates a database or loads an existing one ,
+        ``overwrite`` argument can be used to overwrite the
+        current database present at this path
+        """
+
         if(overwrite and os.path.exists(database_path)):
             os.remove(database_path)
 
         self._connector = sqlite3.connect(database_path)
         self._cursor = self._connector.cursor()
     
-    def createTable(self , table : str , attributes : dict , primary_keys=[]):
+    def createTable(self , table : str , attributes : dict , primary_keys : list = []):
 
         sqlQuery = "CREATE TABLE "+table+" ( "
         n = 1
